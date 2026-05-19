@@ -2,13 +2,22 @@ name: SlotBot
 
 on:
   schedule:
-    # Läuft täglich alle 30 Minuten zwischen 9 und 19 Uhr (UTC = DE-Zeit minus 2h)
+    # Normaler Run: täglich alle 30 Minuten 9–19 Uhr (UTC)
     - cron: "0,30 7-17 * * *"
-  workflow_dispatch: # manuell startbar
+    # Wochenbericht: Sonntags um 19 Uhr DE-Zeit (17 Uhr UTC)
+    - cron: "0 17 * * 0"
+  workflow_dispatch:
+    inputs:
+      weekly_summary:
+        description: "Wochenbericht manuell senden?"
+        required: false
+        default: "false"
 
 jobs:
   run-slotbot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Nötig um stats.json ins Repo zu schreiben
 
     steps:
       - name: Checkout
@@ -26,4 +35,13 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WEEKLY_SUMMARY: ${{ github.event.schedule == '0 17 * * 0' && 'true' || inputs.weekly_summary || 'false' }}
         run: python slotbot.py
+
+      - name: Stats speichern
+        run: |
+          git config user.name "SlotBot"
+          git config user.email "slotbot@github-actions"
+          git add stats.json
+          git diff --staged --quiet || git commit -m "📊 Stats update"
+          git push

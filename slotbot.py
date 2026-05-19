@@ -1,0 +1,158 @@
+import requests
+from datetime import datetime, timedelta
+import os
+
+# ─────────────────────────────────────────
+#  KONFIGURATION – hier alles anpassen
+# ─────────────────────────────────────────
+
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+
+# PadelCity München Tucherpark (Playtomic Tenant-ID)
+VENUES = [
+    {
+        "name": "PadelCity München Tucherpark",
+        "tenant_id": "ea2bccb9-ea75-486c-959f-921a65df4f32",
+        "booking_url": "https://playtomic.io/padelcity-mnchen-tucherpark/ea2bccb9-ea75-486c-959f-921a65df4f32",
+    }
+]
+
+# Gewünschte Startzeiten
+DESIRED_TIMES = ["16:30", "17:00", "17:30", "18:00", "18:30", "19:00"]
+
+# Spieldauer in Minuten
+DURATION_MINUTES = 60
+
+# Wie viele Tage im Voraus suchen?
+DAYS_AHEAD = 14
+
+# ─────────────────────────────────────────
+#  PLAYTOMIC API
+# ─────────────────────────────────────────
+
+API_BASE = "https://api.playtomic.io/v1/availability"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
+    "Accept": "application/json",
+    "X-Requested-With": "com.playtomic.app",
+}
+
+
+def get_weekdays_ahead(days: int):
+    """Gibt alle Wochentage (Mo–Fr) der nächsten X Tage zurück."""
+    today = datetime.now().date()
+    result = []
+    for i in range(1, days + 1):
+        day = today + timedelta(days=i)
+        if day.weekday() < 5:  # 0=Mo, 4=Fr
+            result.append(day)
+    return result
+
+
+def check_availability(tenant_id: str, date) -> list:
+    """Fragt Playtomic API für einen Tag ab und gibt freie Slots zurück."""
+    start_min = f"{date}T00:00:00"
+    start_max = f"{date}T23:59:59"
+
+    params = {
+        "sport_id": "PADEL",
+        "tenant_id": tenant_id,
+        "start_min": start_min,
+        "start_max": start_max,
+        "duration": DURATION_MINUTES,
+        "user_id": "me",
+    }
+
+    try:
+        response = requests.get(API_BASE, params=params, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Fehler bei API-Anfrage: {e}")
+        return []
+
+
+def filter_desired_slots(slots: list, date) -> list:
+    """Filtert nur die gewünschten Zeiten heraus."""
+    matches = []
+    for slot in slots:
+        start = slot.get("start_time", "")
+        # start_time kommt als "HH:MM:SS" oder "HH:MM"
+        time_str = start[:5]  # nur "HH:MM"
+        if time_str in DESIRED_TIMES:
+            matches.append({
+                "date": str(date),
+                "time": time_str,
+                "slot": slot,
+            })
+    return matches
+
+
+def send_telegram_message(text: str):
+    """Sendet eine Nachricht an die Telegram-Gruppe."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        r.raise_for_status()
+        print("Telegram-Nachricht gesendet!")
+    except Exception as e:
+        print(f"Fehler beim Senden: {e}")
+
+
+def format_date_german(date_str: str) -> str:
+    """Formatiert Datum auf Deutsch: 2026-05-22 → Fr, 22.05."""
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+    return f"{weekdays[d.weekday()]}, {d.strftime('%d.%m.')}"
+
+
+# ─────────────────────────────────────────
+#  HAUPTPROGRAMM
+# ─────────────────────────────────────────
+
+def main():
+    print(f"SlotBot startet – suche für {DAYS_AHEAD} Tage im Voraus...")
+    all_found = []
+
+    days = get_weekdays_ahead(DAYS_AHEAD)
+
+    for venue in VENUES:
+        print(f"\n📍 Prüfe {venue['name']}...")
+        for date in days:
+            slots = check_availability(venue["tenant_id"], date)
+            matches = filter_desired_slots(slots, date)
+            for m in matches:
+                m["venue"] = venue
+            all_found.extend(matches)
+            print(f"  {date}: {len(matches)} Treffer")
+
+    if not all_found:
+        print("Keine freien Slots gefunden.")
+        return
+
+    # Nachricht zusammenbauen
+    lines = ["🎾 <b>SlotBot – Freie Padel-Courts!</b>\n"]
+    for m in all_found:
+        date_fmt = format_date_german(m["date"])
+        venue_name = m["venue"]["name"]
+        booking_url = m["venue"]["booking_url"]
+        lines.append(
+            f"✅ <b>{date_fmt} um {m['time']} Uhr</b>\n"
+            f"📍 {venue_name}\n"
+            f'🔗 <a href="{booking_url}">Jetzt buchen</a>\n'
+        )
+
+    message = "\n".join(lines)
+    send_telegram_message(message)
+    print(f"\n{len(all_found)} freie Slots gefunden und gesendet!")
+
+
+if __name__ == "__main__":
+    main()

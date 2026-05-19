@@ -1,0 +1,143 @@
+🤖 SlotBot
+Automatischer Padel-Court-Scraper für München
+Dokumentation & Setup-Guide
+
+📋 Was ist SlotBot?
+SlotBot ist ein automatischer Scraper, der regelmäßig Padel-Court-Verfügbarkeiten bei PadelCity München prüft und bei freien Slots zur Wunschzeit eine Benachrichtigung in eine Telegram-Gruppe sendet. Er läuft vollautomatisch in der Cloud (GitHub Actions) – kostenlos und ohne eigenen Server.
+
+Komponente	Beschreibung
+slotbot.py	Der Python-Scraper – alle Logik steckt hier
+slotbot.yml	GitHub Actions Workflow – Zeitplan & Ausführung
+stats.json	Zählt Runs und gefundene Slots (automatisch)
+GitHub Secrets	Telegram Token & Chat-ID – sicher verschlüsselt
+
+
+Schritt 1 – Telegram Bot erstellen
+Der Bot ist das Herzstück der Benachrichtigung. Er schreibt automatisch in eure Padel-Gruppe, sobald ein freier Slot gefunden wurde.
+Bot erstellen mit BotFather
+Alles passiert direkt in der Telegram App – kein Browser nötig (außer für einen Schritt):
+•	Telegram App öffnen → Suche → @BotFather eintippen
+•	Auf den verifizierten BotFather tippen (blauer Haken ✓)
+•	/newbot schicken
+•	Name eingeben: z.B. SlotBot
+•	Username eingeben: z.B. SlotBot_muenchen_bot
+•	BotFather schickt den Token zurück – diesen sicher speichern!
+Der Token sieht so aus:
+123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+Bot in die Gruppe einladen
+•	Neue Telegram-Gruppe erstellen (oder bestehende Padel-Gruppe nutzen)
+•	Bot als Mitglied hinzufügen
+•	Irgendjemand schreibt eine Testnachricht in die Gruppe
+Chat-ID herausfinden
+Die Chat-ID ist die eindeutige Nummer eurer Gruppe. Zwei Wege:
+•	Im Browser: URL öffnen (Token ersetzen):
+https://api.telegram.org/bot<TOKEN>/getUpdates
+•	Oder: Gruppenlink im Web-Telegram anschauen – die Zahl am Ende der URL ist die Chat-ID
+Die Chat-ID ist eine negative Zahl, z.B.:
+-5262340742
+
+
+Schritt 2 – GitHub einrichten
+GitHub hostet den Code und führt ihn automatisch nach Zeitplan aus – komplett kostenlos.
+Repository anlegen
+•	github.com aufrufen und Account erstellen
+•	Neues Repository anlegen: Name z.B. slotbot
+•	Sichtbarkeit: Private empfohlen
+Dateien hochladen
+Das Repository braucht diese Struktur:
+slotbot/
+  slotbot.py
+  .github/
+    workflows/
+      slotbot.yml
+Am einfachsten mit VS Code: Dateien einfach reinkopieren und pushen.
+Secrets hinterlegen
+Die sensiblen Daten (Token, Chat-ID) werden als verschlüsselte Secrets gespeichert – niemand kann sie einsehen:
+•	Repo → Settings → Secrets and variables → Actions
+•	"New repository secret" klicken
+•	TELEGRAM_TOKEN → euren Bot-Token einfügen
+•	TELEGRAM_CHAT_ID → die Gruppen-Chat-ID einfügen (z.B. -5262340742)
+
+
+Schritt 3 – Testen & starten
+Manueller Test
+•	Im Repo auf Actions klicken
+•	Links SlotBot auswählen
+•	"Run workflow" → grüner Button
+•	Run erscheint in der Liste – grüner Haken = Erfolg
+Wurden freie Slots gefunden, kommt sofort eine Nachricht in die Telegram-Gruppe. Keine Nachricht = kein freier Slot zur Wunschzeit (kein Fehler!).
+Wochenbericht manuell testen
+•	Actions → SlotBot → Run workflow
+•	Feld "Wochenbericht manuell senden?" auf true setzen
+•	Ausführen – Zusammenfassung kommt in die Gruppe
+
+
+Wie funktioniert der Code?
+SlotBot besteht aus zwei Dateien. Hier eine genaue Erklärung:
+slotbot.yml – der Dirigent
+Kein Python, sondern eine Anleitung für GitHub. Er definiert:
+•	Wann der Bot läuft (cron-Zeitplan)
+•	Was er tut: Python installieren, slotbot.py ausführen
+•	Welche Umgebungsvariablen das Script bekommt (die Secrets)
+•	Was danach passiert: stats.json committen und pushen
+Die Secrets werden so übergeben:
+env:
+  TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+slotbot.py – die Arbeit
+Hat 7 Methoden:
+
+Methode	Was sie tut
+get_weekdays_ahead()	Berechnet alle Mo–Fr der nächsten 14 Tage
+check_availability()	Fragt Playtomic API für einen Tag ab
+filter_desired_slots()	Behält nur die Wunschzeiten (z.B. 16:30–19:00)
+send_telegram_message()	Schickt eine Nachricht in die Telegram-Gruppe
+load_stats() / save_stats()	Liest und schreibt stats.json
+send_weekly_summary()	Baut den Wochenbericht und sendet ihn
+main()	Steuert den gesamten Ablauf
+
+Die zwei API-Anbindungen
+Playtomic (in check_availability):
+requests.get("https://api.playtomic.io/v1/availability", params={...})
+Kein Login nötig – öffentliche API. Gibt JSON mit allen freien Slots des Tages zurück.
+
+Telegram (in send_telegram_message):
+requests.post("https://api.telegram.org/bot{TOKEN}/sendMessage", ...)
+Einfacher HTTP-Post mit dem Bot-Token. Telegram leitet die Nachricht in die Gruppe weiter.
+Secrets – wie funktioniert die Sicherheit?
+GitHub verschlüsselt Token und Chat-ID – niemand kann sie lesen, auch du nicht mehr nach dem Speichern. Die YML übergibt sie beim Run als Umgebungsvariablen ans Python-Script. Python liest sie mit:
+os.environ["TELEGRAM_TOKEN"]
+So steht der Token nirgends im Code – vollständig sicher.
+stats.json – das Gedächtnis
+Nach jedem Run wird diese Datei automatisch aktualisiert und ins Repo gepusht:
+{
+  "week_start": "2026-05-19",
+  "total_runs": 42,
+  "successful_runs": 41,
+  "slots_found": 8,
+  "alerts_sent": 3
+}
+Jeden Sonntag um 19 Uhr wird daraus der Wochenbericht gebaut und die Datei auf 0 resettet.
+
+
+⚙️ Konfiguration anpassen
+Alles Wichtige steht oben in slotbot.py im Konfigurations-Block:
+
+Variable	Bedeutung
+DESIRED_TIMES	Wunschzeiten, z.B. ["16:30", "17:00", ...]
+DURATION_MINUTES	Spieldauer in Minuten (Standard: 60)
+DAYS_AHEAD	Wie viele Tage im Voraus suchen (Standard: 14)
+VENUES	Liste der Anbieter mit Name, Tenant-ID und Buchungs-URL
+
+Neuen Anbieter hinzufügen – einfach VENUES erweitern:
+{
+  "name": "Neuer Anbieter",
+  "tenant_id": "...",
+  "booking_url": "https://..."
+}
+
+
+💡 Zusammenfassung in einem Satz
+GitHub startet SlotBot → SlotBot fragt Playtomic → findet freie Slots → schickt Telegram-Nachricht → speichert Stats → schläft bis zum nächsten Run.
+
+SlotBot – gebaut mit ❤️ für die Padel-Community München

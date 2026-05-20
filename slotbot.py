@@ -10,13 +10,21 @@ import json
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# PadelCity München Tucherpark (Playtomic Tenant-ID)
+# Anbieter – type "playtomic" oder "eversports"
 VENUES = [
     {
         "name": "PadelCity München Tucherpark",
+        "type": "playtomic",
         "tenant_id": "ea2bccb9-ea75-486c-959f-921a65df4f32",
         "booking_url": "https://playtomic.io/padelcity-mnchen-tucherpark/ea2bccb9-ea75-486c-959f-921a65df4f32",
-    }
+    },
+    {
+        "name": "Sport Insel Taufkirchen",
+        "type": "eversports",
+        "facility_id": 25080,
+        "court_id": 68894,
+        "booking_url": "https://www.eversports.de/sb/sport-insel-taufkirchen",
+    },
 ]
 
 # Gewünschte Startzeiten (Mo–Fr)
@@ -35,14 +43,95 @@ STATS_FILE = "stats.json"
 #  PLAYTOMIC API
 # ─────────────────────────────────────────
 
-API_BASE = "https://api.playtomic.io/v1/availability"
+PLAYTOMIC_API = "https://api.playtomic.io/v1/availability"
 
-HEADERS = {
+PLAYTOMIC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
     "Accept": "application/json",
     "X-Requested-With": "com.playtomic.app",
 }
 
+
+def check_playtomic(tenant_id: str, date) -> list:
+    """Fragt Playtomic API für einen Tag ab und gibt freie Slots zurück."""
+    params = {
+        "sport_id": "PADEL",
+        "tenant_id": tenant_id,
+        "start_min": f"{date}T00:00:00",
+        "start_max": f"{date}T23:59:59",
+        "duration": DURATION_MINUTES,
+        "user_id": "me",
+    }
+    try:
+        r = requests.get(PLAYTOMIC_API, params=params, headers=PLAYTOMIC_HEADERS, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"  Playtomic Fehler: {e}")
+        return []
+
+
+def filter_playtomic_slots(slots: list, date) -> list:
+    """Filtert Playtomic-Slots auf Wunschzeiten."""
+    matches = []
+    for slot in slots:
+        time_str = slot.get("start_time", "")[:5]  # "HH:MM"
+        if time_str in DESIRED_TIMES:
+            matches.append({"date": str(date), "time": time_str})
+    return matches
+
+
+# ─────────────────────────────────────────
+#  EVERSPORTS API
+# ─────────────────────────────────────────
+
+EVERSPORTS_API = "https://www.eversports.de/api/slot"
+
+EVERSPORTS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    "Accept": "application/json",
+    "Referer": "https://www.eversports.de/",
+}
+
+
+def check_eversports(facility_id: int, court_id: int, date) -> list:
+    """Fragt Eversports API für einen Tag ab und gibt freie Slots zurück."""
+    params = {
+        "facilityId": facility_id,
+        "startDate": str(date),
+        "courts[]": court_id,
+    }
+    try:
+        r = requests.get(EVERSPORTS_API, params=params, headers=EVERSPORTS_HEADERS, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("slots", [])
+    except Exception as e:
+        print(f"  Eversports Fehler: {e}")
+        return []
+
+
+def filter_eversports_slots(slots: list, date) -> list:
+    """Filtert Eversports-Slots auf Wunschzeiten (nur freie, present=false)."""
+    matches = []
+    for slot in slots:
+        # Nur freie Slots (present=false bedeutet nicht gebucht)
+        if slot.get("present", True):
+            continue
+        # Uhrzeit von "1630" → "16:30"
+        raw = slot.get("start", "")
+        if len(raw) == 4:
+            time_str = f"{raw[:2]}:{raw[2:]}"
+        else:
+            continue
+        if time_str in DESIRED_TIMES:
+            matches.append({"date": str(date), "time": time_str})
+    return matches
+
+
+# ─────────────────────────────────────────
+#  GEMEINSAME HILFSFUNKTIONEN
+# ─────────────────────────────────────────
 
 def get_weekdays_ahead(days: int):
     """Gibt alle Wochentage (Mo–Fr) der nächsten X Tage zurück."""
@@ -50,57 +139,15 @@ def get_weekdays_ahead(days: int):
     result = []
     for i in range(1, days + 1):
         day = today + timedelta(days=i)
-        if day.weekday() < 5:  # 0=Mo, 4=Fr
+        if day.weekday() < 5:
             result.append(day)
     return result
-
-
-def check_availability(tenant_id: str, date) -> list:
-    """Fragt Playtomic API für einen Tag ab und gibt freie Slots zurück."""
-    start_min = f"{date}T00:00:00"
-    start_max = f"{date}T23:59:59"
-
-    params = {
-        "sport_id": "PADEL",
-        "tenant_id": tenant_id,
-        "start_min": start_min,
-        "start_max": start_max,
-        "duration": DURATION_MINUTES,
-        "user_id": "me",
-    }
-
-    try:
-        response = requests.get(API_BASE, params=params, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Fehler bei API-Anfrage: {e}")
-        return []
-
-
-def filter_desired_slots(slots: list, date) -> list:
-    """Filtert nur die gewünschten Zeiten heraus."""
-    matches = []
-    for slot in slots:
-        start = slot.get("start_time", "")
-        time_str = start[:5]
-        if time_str in DESIRED_TIMES:
-            matches.append({
-                "date": str(date),
-                "time": time_str,
-                "slot": slot,
-            })
-    return matches
 
 
 def send_telegram_message(text: str):
     """Sendet eine Nachricht an die Telegram-Gruppe."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
         r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
@@ -121,7 +168,6 @@ def format_date_german(date_str: str) -> str:
 # ─────────────────────────────────────────
 
 def load_stats() -> dict:
-    """Lädt die Stats-Datei oder erstellt eine neue."""
     if os.path.exists(STATS_FILE):
         with open(STATS_FILE, "r") as f:
             return json.load(f)
@@ -135,13 +181,11 @@ def load_stats() -> dict:
 
 
 def save_stats(stats: dict):
-    """Speichert die Stats-Datei."""
     with open(STATS_FILE, "w") as f:
         json.dump(stats, f, indent=2)
 
 
 def send_weekly_summary(stats: dict):
-    """Sendet die Wochenzusammenfassung an Telegram und resettet die Stats."""
     week_start = stats.get("week_start", "?")
     week_end = str(datetime.now().date())
     runs = stats.get("total_runs", 0)
@@ -157,6 +201,7 @@ def send_weekly_summary(stats: dict):
         f"✅ Erfolgreich: <b>{successful}x</b> ({success_rate}%)\n"
         f"🎾 Freie Slots entdeckt: <b>{slots}x</b>\n"
         f"🔔 Benachrichtigungen gesendet: <b>{alerts}x</b>\n\n"
+        f"Nächste Woche schrauben wir wieder! 💪"
     )
     send_telegram_message(message)
 
@@ -167,36 +212,38 @@ def send_weekly_summary(stats: dict):
 
 def main():
     is_sunday_summary = os.environ.get("WEEKLY_SUMMARY") == "true"
-
     stats = load_stats()
 
     if is_sunday_summary:
         print("Sonntags-Zusammenfassung wird gesendet...")
         send_weekly_summary(stats)
-        new_stats = {
+        save_stats({
             "week_start": str(datetime.now().date()),
-            "total_runs": 0,
-            "successful_runs": 0,
-            "slots_found": 0,
-            "alerts_sent": 0,
-        }
-        save_stats(new_stats)
+            "total_runs": 0, "successful_runs": 0,
+            "slots_found": 0, "alerts_sent": 0,
+        })
         return
 
     print(f"SlotBot startet – suche für {DAYS_AHEAD} Tage im Voraus...")
     stats["total_runs"] = stats.get("total_runs", 0) + 1
     all_found = []
     api_success = False
-
     days = get_weekdays_ahead(DAYS_AHEAD)
 
     for venue in VENUES:
-        print(f"\n📍 Prüfe {venue['name']}...")
+        print(f"\n📍 Prüfe {venue['name']} ({venue['type']})...")
         for date in days:
-            slots = check_availability(venue["tenant_id"], date)
-            if slots is not None:
+            if venue["type"] == "playtomic":
+                slots = check_playtomic(venue["tenant_id"], date)
+                matches = filter_playtomic_slots(slots, date)
+            elif venue["type"] == "eversports":
+                slots = check_eversports(venue["facility_id"], venue["court_id"], date)
+                matches = filter_eversports_slots(slots, date)
+            else:
+                matches = []
+
+            if slots:
                 api_success = True
-            matches = filter_desired_slots(slots, date)
             for m in matches:
                 m["venue"] = venue
             all_found.extend(matches)
@@ -214,16 +261,13 @@ def main():
         lines = ["🎾 <b>SlotBot – Freie Padel-Courts!</b>\n"]
         for m in all_found:
             date_fmt = format_date_german(m["date"])
-            venue_name = m["venue"]["name"]
-            booking_url = m["venue"]["booking_url"]
             lines.append(
                 f"✅ <b>{date_fmt} um {m['time']} Uhr</b>\n"
-                f"📍 {venue_name}\n"
-                f'🔗 <a href="{booking_url}">Jetzt buchen</a>\n'
+                f"📍 {m['venue']['name']}\n"
+                f'🔗 <a href="{m[\'venue\'][\'booking_url\']}">Jetzt buchen</a>\n'
             )
 
-        message = "\n".join(lines)
-        send_telegram_message(message)
+        send_telegram_message("\n".join(lines))
         print(f"\n{len(all_found)} freie Slots gefunden und gesendet!")
 
     save_stats(stats)

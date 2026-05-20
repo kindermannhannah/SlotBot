@@ -258,15 +258,24 @@ def main():
         stats["slots_found"] = stats.get("slots_found", 0) + len(all_found)
         stats["alerts_sent"] = stats.get("alerts_sent", 0) + 1
 
-        lines = ["🎾 <b>SlotBot – Freie Padel-Courts!</b>\n"]
+        # Gruppieren nach Anbieter → Datum → Zeiten
+        from collections import defaultdict
+        grouped = defaultdict(lambda: defaultdict(list))
         for m in all_found:
-            date_fmt = format_date_german(m["date"])
-            venue = m["venue"]
-            lines.append(
-                f"✅ <b>{date_fmt} um {m['time']} Uhr</b>\n"
-                f"📍 {venue['name']}\n"
-                f"🔗 <a href=\"{venue['booking_url']}\">Jetzt buchen</a>\n"
-            )
+            grouped[m["venue"]["name"]][m["date"]].append(m["time"])
+
+        lines = ["🎾 <b>SlotBot – Freie Padel-Courts!</b>\n"]
+        for venue_name, dates in grouped.items():
+            venue_obj = next(v for v in VENUES if v["name"] == venue_name)
+            lines.append(f"📍 <b>{venue_name}</b>")
+            sorted_dates = sorted(dates.keys())[:5]  # max 5 Tage anzeigen
+            for date_str in sorted_dates:
+                date_fmt = format_date_german(date_str)
+                times = ", ".join(sorted(dates[date_str]))
+                lines.append(f"✅ {date_fmt} → {times}")
+            if len(dates) > 5:
+                lines.append(f"... und {len(dates) - 5} weitere Tage verfügbar.")
+            lines.append(f"🔗 <a href=\"{venue_obj['booking_url']}\">Jetzt buchen</a>\n")
 
         send_telegram_message("\n".join(lines))
         print(f"\n{len(all_found)} freie Slots gefunden und gesendet!")

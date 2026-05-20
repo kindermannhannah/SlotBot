@@ -1,5 +1,6 @@
 import requests
 from datetime import datetime, timedelta
+from collections import defaultdict, Counter
 import os
 import json
 
@@ -10,7 +11,6 @@ import json
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# Anbieter – type "playtomic" oder "eversports"
 VENUES = [
     {
         "name": "PadelCity München Tucherpark",
@@ -27,16 +27,9 @@ VENUES = [
     },
 ]
 
-# Gewünschte Startzeiten (Mo–Fr)
 DESIRED_TIMES = ["16:30", "17:00", "17:30", "18:00", "18:30", "19:00"]
-
-# Spieldauer in Minuten
 DURATION_MINUTES = 60
-
-# Wie viele Tage im Voraus suchen?
 DAYS_AHEAD = 14
-
-# Stats-Datei
 STATS_FILE = "stats.json"
 
 # ─────────────────────────────────────────
@@ -44,16 +37,13 @@ STATS_FILE = "stats.json"
 # ─────────────────────────────────────────
 
 PLAYTOMIC_API = "https://api.playtomic.io/v1/availability"
-
 PLAYTOMIC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
     "Accept": "application/json",
     "X-Requested-With": "com.playtomic.app",
 }
 
-
 def check_playtomic(tenant_id: str, date) -> list:
-    """Fragt Playtomic API für einen Tag ab und gibt freie Slots zurück."""
     params = {
         "sport_id": "PADEL",
         "tenant_id": tenant_id,
@@ -70,33 +60,27 @@ def check_playtomic(tenant_id: str, date) -> list:
         print(f"  Playtomic Fehler: {e}")
         return []
 
-
 def filter_playtomic_slots(slots: list, date) -> list:
-    """Filtert Playtomic-Slots auf Wunschzeiten."""
     matches = []
     for slot in slots:
-        time_str = slot.get("start_time", "")[:5]  # "HH:MM"
+        time_str = slot.get("start_time", "")[:5]
         if time_str in DESIRED_TIMES:
             matches.append({"date": str(date), "time": time_str})
     return matches
-
 
 # ─────────────────────────────────────────
 #  EVERSPORTS API
 # ─────────────────────────────────────────
 
 EVERSPORTS_API = "https://www.eversports.de/api/slot"
-
 EVERSPORTS_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
     "Accept": "application/json",
     "Referer": "https://www.eversports.de/",
 }
 
-
 def check_eversports_all(facility_id: int, court_id: int) -> list:
-    """Holt alle Eversports-Slots ab heute in einem einzigen Request."""
-    from datetime import datetime
+    """Holt alle gebuchten Slots ab heute in einem Request."""
     today = datetime.now().date()
     params = {
         "facilityId": facility_id,
@@ -106,17 +90,13 @@ def check_eversports_all(facility_id: int, court_id: int) -> list:
     try:
         r = requests.get(EVERSPORTS_API, params=params, headers=EVERSPORTS_HEADERS, timeout=10)
         r.raise_for_status()
-        data = r.json()
-        return data.get("slots", [])
+        return r.json().get("slots", [])
     except Exception as e:
         print(f"  Eversports Fehler: {e}")
         return []
 
-
 def filter_eversports_slots(all_slots: list, days: list) -> list:
-    """Filtert Eversports-Slots pro Tag auf Wunschzeiten.
-    Die API gibt gebuchte Slots zurueck - freie Slots sind die die NICHT in der Liste stehen."""
-    # Gebuchte Zeiten pro Datum sammeln
+    """API gibt gebuchte Slots – freie = Wunschzeiten die NICHT in der Liste stehen."""
     booked = {}
     for slot in all_slots:
         d = slot.get("date", "")
@@ -125,7 +105,6 @@ def filter_eversports_slots(all_slots: list, days: list) -> list:
             time_str = f"{raw[:2]}:{raw[2:]}"
             booked.setdefault(d, set()).add(time_str)
 
-    # Für jeden gewünschten Tag: Wunschzeiten die nicht gebucht sind = frei
     matches = []
     for day in days:
         date_str = str(day)
@@ -135,14 +114,11 @@ def filter_eversports_slots(all_slots: list, days: list) -> list:
                 matches.append({"date": date_str, "time": time_str})
     return matches
 
-
-
 # ─────────────────────────────────────────
-#  GEMEINSAME HILFSFUNKTIONEN
+#  HILFSFUNKTIONEN
 # ─────────────────────────────────────────
 
 def get_weekdays_ahead(days: int):
-    """Gibt alle Wochentage (Mo–Fr) der nächsten X Tage zurück."""
     today = datetime.now().date()
     result = []
     for i in range(1, days + 1):
@@ -151,9 +127,7 @@ def get_weekdays_ahead(days: int):
             result.append(day)
     return result
 
-
 def send_telegram_message(text: str):
-    """Sendet eine Nachricht an die Telegram-Gruppe."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
@@ -163,13 +137,10 @@ def send_telegram_message(text: str):
     except Exception as e:
         print(f"Fehler beim Senden: {e}")
 
-
 def format_date_german(date_str: str) -> str:
-    """Formatiert Datum auf Deutsch: 2026-05-22 → Fr, 22.05."""
     d = datetime.strptime(date_str, "%Y-%m-%d")
     weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
     return f"{weekdays[d.weekday()]}, {d.strftime('%d.%m.')}"
-
 
 # ─────────────────────────────────────────
 #  STATS
@@ -181,17 +152,13 @@ def load_stats() -> dict:
             return json.load(f)
     return {
         "week_start": str(datetime.now().date()),
-        "total_runs": 0,
-        "successful_runs": 0,
-        "slots_found": 0,
-        "alerts_sent": 0,
+        "total_runs": 0, "successful_runs": 0,
+        "slots_found": 0, "alerts_sent": 0,
     }
-
 
 def save_stats(stats: dict):
     with open(STATS_FILE, "w") as f:
         json.dump(stats, f, indent=2)
-
 
 def send_weekly_summary(stats: dict):
     week_start = stats.get("week_start", "?")
@@ -201,7 +168,6 @@ def send_weekly_summary(stats: dict):
     slots = stats.get("slots_found", 0)
     alerts = stats.get("alerts_sent", 0)
     success_rate = round((successful / runs * 100) if runs > 0 else 0)
-
     message = (
         f"📊 <b>SlotBot Wochenbericht</b>\n"
         f"📅 {week_start} – {week_end}\n\n"
@@ -212,7 +178,6 @@ def send_weekly_summary(stats: dict):
         f"Nächste Woche schrauben wir wieder! 💪"
     )
     send_telegram_message(message)
-
 
 # ─────────────────────────────────────────
 #  HAUPTPROGRAMM
@@ -240,22 +205,29 @@ def main():
 
     for venue in VENUES:
         print(f"\n📍 Prüfe {venue['name']} ({venue['type']})...")
-        for date in days:
-            if venue["type"] == "playtomic":
+
+        if venue["type"] == "playtomic":
+            for date in days:
                 slots = check_playtomic(venue["tenant_id"], date)
                 matches = filter_playtomic_slots(slots, date)
-            elif venue["type"] == "eversports":
-                slots = check_eversports(venue["facility_id"], venue["court_id"], date)
-                matches = filter_eversports_slots(slots, date)
-            else:
-                matches = []
+                if slots:
+                    api_success = True
+                for m in matches:
+                    m["venue"] = venue
+                all_found.extend(matches)
+                print(f"  {date}: {len(matches)} Treffer")
 
-            if slots:
+        elif venue["type"] == "eversports":
+            all_slots = check_eversports_all(venue["facility_id"], venue["court_id"])
+            if all_slots:
                 api_success = True
+            matches = filter_eversports_slots(all_slots, days)
             for m in matches:
                 m["venue"] = venue
             all_found.extend(matches)
-            print(f"  {date}: {len(matches)} Treffer")
+            per_day = Counter(m["date"] for m in matches)
+            for date in days:
+                print(f"  {date}: {per_day.get(str(date), 0)} Treffer")
 
     if api_success:
         stats["successful_runs"] = stats.get("successful_runs", 0) + 1
@@ -266,8 +238,6 @@ def main():
         stats["slots_found"] = stats.get("slots_found", 0) + len(all_found)
         stats["alerts_sent"] = stats.get("alerts_sent", 0) + 1
 
-        # Gruppieren nach Anbieter → Datum → Zeiten
-        from collections import defaultdict
         grouped = defaultdict(lambda: defaultdict(list))
         for m in all_found:
             grouped[m["venue"]["name"]][m["date"]].append(m["time"])
@@ -276,10 +246,9 @@ def main():
         for venue_name, dates in grouped.items():
             venue_obj = next(v for v in VENUES if v["name"] == venue_name)
             lines.append(f"📍 <b>{venue_name}</b>")
-            sorted_dates = sorted(dates.keys())[:5]  # max 5 Tage anzeigen
+            sorted_dates = sorted(dates.keys())[:5]
             for date_str in sorted_dates:
                 date_fmt = format_date_german(date_str)
-                from collections import Counter
                 time_counts = Counter(dates[date_str])
                 time_parts = []
                 for t in sorted(time_counts.keys()):

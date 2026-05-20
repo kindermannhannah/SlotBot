@@ -80,20 +80,23 @@ EVERSPORTS_HEADERS = {
 }
 
 def check_eversports_all(facility_id: int, court_id: int) -> list:
-    """Holt alle gebuchten Slots ab heute in einem Request."""
+    """Holt alle gebuchten Slots in zwei Requests (diese + naechste Woche)."""
     today = datetime.now().date()
-    params = {
-        "facilityId": facility_id,
-        "startDate": str(today),
-        "courts[]": court_id,
-    }
-    try:
-        r = requests.get(EVERSPORTS_API, params=params, headers=EVERSPORTS_HEADERS, timeout=10)
-        r.raise_for_status()
-        return r.json().get("slots", [])
-    except Exception as e:
-        print(f"  Eversports Fehler: {e}")
-        return []
+    next_week = today + timedelta(days=7)
+    all_slots = []
+    for start_date in [today, next_week]:
+        params = {
+            "facilityId": facility_id,
+            "startDate": str(start_date),
+            "courts[]": court_id,
+        }
+        try:
+            r = requests.get(EVERSPORTS_API, params=params, headers=EVERSPORTS_HEADERS, timeout=10)
+            r.raise_for_status()
+            all_slots.extend(r.json().get("slots", []))
+        except Exception as e:
+            print(f"  Eversports Fehler ({start_date}): {e}")
+    return all_slots
 
 def filter_eversports_slots(all_slots: list, days: list) -> list:
     """API gibt gebuchte Slots – freie = Wunschzeiten die NICHT in der Liste stehen."""

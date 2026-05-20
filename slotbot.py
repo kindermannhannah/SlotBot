@@ -110,7 +110,13 @@ def filter_eversports_slots(all_slots: list, days: list) -> list:
         date_str = str(day)
         booked_today = booked.get(date_str, set())
         for time_str in DESIRED_TIMES:
-            if time_str not in booked_today:
+            # Prüfen ob der Slot UND der nächste 30-Min-Block frei sind (= 1 Stunde frei)
+            h, m = int(time_str[:2]), int(time_str[3:])
+            next_minutes = m + 30
+            next_h = h + next_minutes // 60
+            next_m = next_minutes % 60
+            next_time = f"{next_h:02d}:{next_m:02d}"
+            if time_str not in booked_today and next_time not in booked_today:
                 matches.append({"date": date_str, "time": time_str})
     return matches
 

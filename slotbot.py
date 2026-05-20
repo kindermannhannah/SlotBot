@@ -261,10 +261,11 @@ def main():
         lines = ["🎾 <b>SlotBot – Freie Padel-Courts!</b>\n"]
         for m in all_found:
             date_fmt = format_date_german(m["date"])
+            venue = m["venue"]
             lines.append(
                 f"✅ <b>{date_fmt} um {m['time']} Uhr</b>\n"
-                f"📍 {m['venue']['name']}\n"
-                f'🔗 <a href="{m[\'venue\'][\'booking_url\']}">Jetzt buchen</a>\n'
+                f"📍 {venue['name']}\n"
+                f"🔗 <a href=\"{venue['booking_url']}\">Jetzt buchen</a>\n"
             )
 
         send_telegram_message("\n".join(lines))

@@ -2,7 +2,7 @@ name: SlotBot
 
 on:
   schedule:
-    # Normaler Run: täglich alle 30 Minuten 9–19 Uhr (UTC)
+    # Normaler Run: täglich alle 30 Minuten 6–23 Uhr (UTC)
     - cron: "0,20 6-23 * * *"
     # Wochenbericht: Sonntags um 19 Uhr DE-Zeit (17 Uhr UTC)
     - cron: "0 17 * * 0"

@@ -80,11 +80,11 @@ EVERSPORTS_HEADERS = {
 }
 
 def check_eversports_all(facility_id: int, court_id: int) -> list:
-    """Holt alle gebuchten Slots in zwei Requests (diese + naechste Woche)."""
+    """Holt alle gebuchten Slots in drei Requests (3x7 Tage = 21 Tage Vorausschau)."""
     today = datetime.now().date()
-    next_week = today + timedelta(days=7)
     all_slots = []
-    for start_date in [today, next_week]:
+    for week in range(3):
+        start_date = today + timedelta(days=week * 7)
         params = {
             "facilityId": facility_id,
             "startDate": str(start_date),

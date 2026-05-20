@@ -94,11 +94,13 @@ EVERSPORTS_HEADERS = {
 }
 
 
-def check_eversports(facility_id: int, court_id: int, date) -> list:
-    """Fragt Eversports API für einen Tag ab und gibt freie Slots zurück."""
+def check_eversports_all(facility_id: int, court_id: int) -> list:
+    """Holt alle Eversports-Slots ab heute in einem einzigen Request."""
+    from datetime import datetime
+    today = datetime.now().date()
     params = {
         "facilityId": facility_id,
-        "startDate": str(date),
+        "startDate": str(today),
         "courts[]": court_id,
     }
     try:
@@ -111,20 +113,26 @@ def check_eversports(facility_id: int, court_id: int, date) -> list:
         return []
 
 
-def filter_eversports_slots(slots: list, date) -> list:
-    """Filtert Eversports-Slots auf Wunschzeiten.
+def filter_eversports_slots(all_slots: list, days: list) -> list:
+    """Filtert Eversports-Slots pro Tag auf Wunschzeiten.
     Die API gibt gebuchte Slots zurueck - freie Slots sind die die NICHT in der Liste stehen."""
-    booked_times = set()
-    for slot in slots:
+    # Gebuchte Zeiten pro Datum sammeln
+    booked = {}
+    for slot in all_slots:
+        d = slot.get("date", "")
         raw = slot.get("start", "")
         if len(raw) == 4:
             time_str = f"{raw[:2]}:{raw[2:]}"
-            booked_times.add(time_str)
+            booked.setdefault(d, set()).add(time_str)
 
+    # Für jeden gewünschten Tag: Wunschzeiten die nicht gebucht sind = frei
     matches = []
-    for time_str in DESIRED_TIMES:
-        if time_str not in booked_times:
-            matches.append({"date": str(date), "time": time_str})
+    for day in days:
+        date_str = str(day)
+        booked_today = booked.get(date_str, set())
+        for time_str in DESIRED_TIMES:
+            if time_str not in booked_today:
+                matches.append({"date": date_str, "time": time_str})
     return matches
 
 

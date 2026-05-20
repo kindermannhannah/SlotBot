@@ -112,21 +112,21 @@ def check_eversports(facility_id: int, court_id: int, date) -> list:
 
 
 def filter_eversports_slots(slots: list, date) -> list:
-    """Filtert Eversports-Slots auf Wunschzeiten (nur freie, present=false)."""
-    matches = []
+    """Filtert Eversports-Slots auf Wunschzeiten.
+    Die API gibt gebuchte Slots zurueck - freie Slots sind die die NICHT in der Liste stehen."""
+    booked_times = set()
     for slot in slots:
-        # Nur freie Slots (present=false bedeutet nicht gebucht)
-        if slot.get("present", True):
-            continue
-        # Uhrzeit von "1630" → "16:30"
         raw = slot.get("start", "")
         if len(raw) == 4:
             time_str = f"{raw[:2]}:{raw[2:]}"
-        else:
-            continue
-        if time_str in DESIRED_TIMES:
+            booked_times.add(time_str)
+
+    matches = []
+    for time_str in DESIRED_TIMES:
+        if time_str not in booked_times:
             matches.append({"date": str(date), "time": time_str})
     return matches
+
 
 
 # ─────────────────────────────────────────

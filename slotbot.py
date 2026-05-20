@@ -113,7 +113,6 @@ def filter_eversports_slots(all_slots: list, days: list) -> list:
         date_str = str(day)
         booked_today = booked.get(date_str, set())
         for time_str in DESIRED_TIMES:
-            # Prüfen ob der Slot UND der nächste 30-Min-Block frei sind (= 1 Stunde frei)
             h, m = int(time_str[:2]), int(time_str[3:])
             next_minutes = m + 30
             next_h = h + next_minutes // 60
@@ -152,7 +151,7 @@ def format_date_german(date_str: str) -> str:
     return f"{weekdays[d.weekday()]}, {d.strftime('%d.%m.')}"
 
 # ─────────────────────────────────────────
-#  STATS
+#  STATS & SLOT-VERGLEICH
 # ─────────────────────────────────────────
 
 def load_stats() -> dict:
@@ -163,6 +162,7 @@ def load_stats() -> dict:
         "week_start": str(datetime.now().date()),
         "total_runs": 0, "successful_runs": 0,
         "slots_found": 0, "alerts_sent": 0,
+        "last_known_slots": {},  # { "VenueName": { "2026-05-21": ["16:30", "17:00"] } }
     }
 
 def save_stats(stats: dict):
@@ -188,6 +188,14 @@ def send_weekly_summary(stats: dict):
     )
     send_telegram_message(message)
 
+def compare_slots(old: dict, new: dict) -> tuple:
+    """Vergleicht alten und neuen Stand. Gibt (neu_frei, weggebucht) zurück."""
+    old_set = set(old.get("times", []))
+    new_set = set(new.get("times", []))
+    neu_frei = sorted(new_set - old_set)
+    weggebucht = sorted(old_set - new_set)
+    return neu_frei, weggebucht
+
 # ─────────────────────────────────────────
 #  HAUPTPROGRAMM
 # ─────────────────────────────────────────
@@ -195,6 +203,8 @@ def send_weekly_summary(stats: dict):
 def main():
     is_sunday_summary = os.environ.get("WEEKLY_SUMMARY") == "true"
     stats = load_stats()
+    if "last_known_slots" not in stats:
+        stats["last_known_slots"] = {}
 
     if is_sunday_summary:
         print("Sonntags-Zusammenfassung wird gesendet...")
@@ -203,6 +213,7 @@ def main():
             "week_start": str(datetime.now().date()),
             "total_runs": 0, "successful_runs": 0,
             "slots_found": 0, "alerts_sent": 0,
+            "last_known_slots": stats.get("last_known_slots", {}),
         })
         return
 
@@ -212,8 +223,13 @@ def main():
     api_success = False
     days = get_weekdays_ahead(DAYS_AHEAD)
 
+    # Aktuellen Stand pro Venue und Datum aufbauen
+    current_slots = {}  # { "VenueName": { "2026-05-21": ["16:30", ...] } }
+
     for venue in VENUES:
         print(f"\n📍 Prüfe {venue['name']} ({venue['type']})...")
+        venue_name = venue["name"]
+        current_slots[venue_name] = {}
 
         if venue["type"] == "playtomic":
             for date in days:
@@ -221,6 +237,8 @@ def main():
                 matches = filter_playtomic_slots(slots, date)
                 if slots:
                     api_success = True
+                times = sorted(set(m["time"] for m in matches))
+                current_slots[venue_name][str(date)] = times
                 for m in matches:
                     m["venue"] = venue
                 all_found.extend(matches)
@@ -234,6 +252,11 @@ def main():
             for m in matches:
                 m["venue"] = venue
             all_found.extend(matches)
+            # Pro Tag gruppieren
+            for date in days:
+                date_str = str(date)
+                times = sorted(set(m["time"] for m in matches if m["date"] == date_str))
+                current_slots[venue_name][date_str] = times
             per_day = Counter(m["date"] for m in matches)
             for date in days:
                 print(f"  {date}: {per_day.get(str(date), 0)} Treffer")
@@ -241,36 +264,56 @@ def main():
     if api_success:
         stats["successful_runs"] = stats.get("successful_runs", 0) + 1
 
-    if not all_found:
-        print("Keine freien Slots gefunden.")
-    else:
-        stats["slots_found"] = stats.get("slots_found", 0) + len(all_found)
-        stats["alerts_sent"] = stats.get("alerts_sent", 0) + 1
+    # ── Änderungen erkennen und Nachrichten bauen ──
+    last_known = stats.get("last_known_slots", {})
+    changes_found = False
 
-        grouped = defaultdict(lambda: defaultdict(list))
-        for m in all_found:
-            grouped[m["venue"]["name"]][m["date"]].append(m["time"])
+    for venue in VENUES:
+        venue_name = venue["name"]
+        old_venue = last_known.get(venue_name, {})
+        new_venue = current_slots.get(venue_name, {})
 
-        lines = ["🎾 <b>SlotBot – Freie Padel-Courts!</b>\n"]
-        for venue_name, dates in grouped.items():
-            venue_obj = next(v for v in VENUES if v["name"] == venue_name)
-            lines.append(f"📍 <b>{venue_name}</b>")
-            sorted_dates = sorted(dates.keys())[:5]
-            for date_str in sorted_dates:
+        # Alle Tage die in alt oder neu vorkommen
+        all_dates = sorted(set(list(old_venue.keys()) + list(new_venue.keys())))
+        venue_lines = []
+
+        for date_str in all_dates:
+            old_times = set(old_venue.get(date_str, []))
+            new_times = set(new_venue.get(date_str, []))
+            neu_frei = sorted(new_times - old_times)
+            weggebucht = sorted(old_times - new_times)
+
+            if neu_frei or weggebucht:
+                changes_found = True
                 date_fmt = format_date_german(date_str)
-                time_counts = Counter(dates[date_str])
-                time_parts = []
-                for t in sorted(time_counts.keys()):
-                    count = time_counts[t]
-                    time_parts.append(f"{t} ({count}x)" if count > 1 else t)
-                lines.append(f"✅ {date_fmt} → {', '.join(time_parts)}")
-            if len(dates) > 5:
-                lines.append(f"... und {len(dates) - 5} weitere Tage verfügbar.")
-            lines.append(f"🔗 <a href=\"{venue_obj['booking_url']}\">Jetzt buchen</a>\n")
+                alle_frei = sorted(new_times)
 
-        send_telegram_message("\n".join(lines))
-        print(f"\n{len(all_found)} freie Slots gefunden und gesendet!")
+                block = [f"📅 <b>{date_fmt}</b>"]
+                if alle_frei:
+                    block.append(f"✅ Frei: {', '.join(alle_frei)}")
+                else:
+                    block.append("✅ Frei: –")
+                if neu_frei:
+                    block.append(f"🆕 Neu frei: {', '.join(neu_frei)}")
+                if weggebucht:
+                    block.append(f"❌ Weggebucht: {', '.join(weggebucht)}")
+                venue_lines.append("\n".join(block))
 
+        if venue_lines:
+            message = (
+                f"🎾 <b>SlotBot Update – {venue_name}</b>\n"
+                f"🔗 <a href=\"{venue['booking_url']}\">Jetzt buchen</a>\n\n"
+                + "\n\n".join(venue_lines)
+            )
+            send_telegram_message(message)
+            stats["alerts_sent"] = stats.get("alerts_sent", 0) + 1
+
+    if not changes_found:
+        print("Keine Änderungen seit dem letzten Run.")
+
+    # Stats und letzten Stand speichern
+    stats["slots_found"] = stats.get("slots_found", 0) + len(all_found)
+    stats["last_known_slots"] = current_slots
     save_stats(stats)
 
 

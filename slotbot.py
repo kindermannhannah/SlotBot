@@ -271,8 +271,13 @@ def main():
             sorted_dates = sorted(dates.keys())[:5]  # max 5 Tage anzeigen
             for date_str in sorted_dates:
                 date_fmt = format_date_german(date_str)
-                times = ", ".join(sorted(dates[date_str]))
-                lines.append(f"✅ {date_fmt} → {times}")
+                from collections import Counter
+                time_counts = Counter(dates[date_str])
+                time_parts = []
+                for t in sorted(time_counts.keys()):
+                    count = time_counts[t]
+                    time_parts.append(f"{t} ({count}x)" if count > 1 else t)
+                lines.append(f"✅ {date_fmt} → {', '.join(time_parts)}")
             if len(dates) > 5:
                 lines.append(f"... und {len(dates) - 5} weitere Tage verfügbar.")
             lines.append(f"🔗 <a href=\"{venue_obj['booking_url']}\">Jetzt buchen</a>\n")

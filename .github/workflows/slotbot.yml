@@ -7,11 +7,11 @@ on:
     # Wochenbericht: Sonntags um 19 Uhr DE-Zeit (17 Uhr UTC)
     # - cron: "0 17 * * 0"
   workflow_dispatch:
-    inputs:
-      weekly_summary:
-        description: "Wochenbericht manuell senden?"
-        required: false
-        default: "false"
+    #inputs:
+    #  weekly_summary:
+    #    description: "Wochenbericht manuell senden?"
+    #    required: false
+    #    default: "false"
 
 jobs:
   run-slotbot:

@@ -184,7 +184,6 @@ def send_weekly_summary(stats: dict):
         f"✅ Erfolgreich: <b>{successful}x</b> ({success_rate}%)\n"
         f"🎾 Freie Slots entdeckt: <b>{slots}x</b>\n"
         f"🔔 Benachrichtigungen gesendet: <b>{alerts}x</b>\n\n"
-        f"Nächste Woche schrauben wir wieder! 💪"
     )
     send_telegram_message(message)
 

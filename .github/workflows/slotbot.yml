@@ -2,8 +2,8 @@ name: SlotBot
 
 on:
   schedule:
-    # Normaler Run: täglich alle 15 Minuten 6–23 Uhr (UTC)
-    - cron: "0,15,30,45 4-21 * * *"
+    # Normaler Run: täglich alle 30 Minuten 8–21 Uhr (UTC)
+    - cron: "3,33 6-19 * * *"
     # Wochenbericht: Sonntags um 19 Uhr DE-Zeit (17 Uhr UTC)
     # - cron: "0 17 * * 0"
   workflow_dispatch:

@@ -1,7 +1,7 @@
 {
   "week_start": "2026-05-24",
-  "total_runs": 365,
-  "successful_runs": 365,
+  "total_runs": 366,
+  "successful_runs": 366,
   "slots_found": 397,
   "alerts_sent": 61,
   "last_known_slots": {

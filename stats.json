@@ -1,9 +1,9 @@
 {
   "week_start": "2026-05-24",
-  "total_runs": 948,
-  "successful_runs": 947,
-  "slots_found": 2990,
-  "alerts_sent": 154,
+  "total_runs": 949,
+  "successful_runs": 948,
+  "slots_found": 3002,
+  "alerts_sent": 155,
   "last_known_slots": {
     "PadelCity M\u00fcnchen Tucherpark": {
       "2026-09-24": [],
@@ -28,10 +28,7 @@
         "17:00"
       ],
       "2026-09-29": [],
-      "2026-09-30": [
-        "16:30",
-        "17:00"
-      ],
+      "2026-09-30": [],
       "2026-10-01": [
         "16:30",
         "17:00",

@@ -1,9 +1,9 @@
 {
   "week_start": "2026-05-24",
-  "total_runs": 1053,
-  "successful_runs": 1052,
-  "slots_found": 4797,
-  "alerts_sent": 203,
+  "total_runs": 1054,
+  "successful_runs": 1053,
+  "slots_found": 4816,
+  "alerts_sent": 204,
   "last_known_slots": {
     "PadelCity M\u00fcnchen Tucherpark": {
       "2026-10-27": [],
@@ -19,9 +19,7 @@
     },
     "Sport Insel Taufkirchen": {
       "2026-10-27": [
-        "16:30",
-        "17:00",
-        "17:30"
+        "16:30"
       ],
       "2026-10-28": [
         "16:30",
@@ -36,9 +34,7 @@
         "17:00",
         "19:00"
       ],
-      "2026-11-02": [
-        "16:30"
-      ],
+      "2026-11-02": [],
       "2026-11-03": [
         "16:30",
         "17:00"
